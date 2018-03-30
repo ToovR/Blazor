@@ -27,6 +27,12 @@ namespace Microsoft.AspNetCore.Blazor.Rendering
         public Queue<RenderQueueEntry> ComponentRenderQueue { get; } = new Queue<RenderQueueEntry>();
         public Queue<int> ComponentDisposalQueue { get; } = new Queue<int>();
 
+        // Scratch data structure for understanding attribute diffs.
+        //
+        // One of these can be used for the whole tree diff because attributes cannot be nested.
+        // Does not need to be cleared because it is always emptied at the end of each attribute pass.
+        public Dictionary<string, int> AttributeDiffSet { get; } = new Dictionary<string, int>();
+
         public void Clear()
         {
             EditsBuffer.Clear();

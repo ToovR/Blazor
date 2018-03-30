@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Blazor.Components;
 using Microsoft.AspNetCore.Blazor.Rendering;
 
@@ -138,6 +139,57 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
             }
         }
 
+        // Handles the diff for attribute nodes only - this invariant is enforced by the caller.
+        //
+        // The diff for attributes is different because we allow attributes to appear in any order.
+        // Put another way, the attributes list of an element or  component is *conceptually* 
+        // unordered. This is a case where we can produce a more minimal diff by avoiding 
+        // non-meaningful reorderings of attributes.
+        private static void AppendAttributeDiffEntriesForRange(
+            ref DiffContext diffContext,
+            int oldStartIndex, int oldEndIndexExcl,
+            int newStartIndex, int newEndIndexExcl)
+        {
+            var oldTree = diffContext.OldTree;
+            var newTree = diffContext.NewTree;
+
+            // Algorithm:
+            //
+            // 1. iterate through the 'new' tree and add all attributes to the attributes set
+            // 2. iterate through the 'old' tree, removing matching attributes from set, and diffing
+            // 3. iterate through the remaining attributes in the set and add them
+            //
+            // This preserves the ordering of the 'old' tree as much as possible to produce the minimal
+            // diff.
+
+            for (var i = newStartIndex; i < newEndIndexExcl; i++)
+            {
+                diffContext.AttributeDiffSet[newTree[i].AttributeName] = i;
+            }
+
+            for (var i = oldStartIndex; i < oldEndIndexExcl; i++)
+            {
+                var oldName = oldTree[i].AttributeName;
+                if (diffContext.AttributeDiffSet.TryGetValue(oldName, out var matchIndex))
+                {
+                    // Has a match in the new tree, look for a diff
+                    AppendDiffEntriesForFramesWithSameSequence(ref diffContext, i, matchIndex);
+                    diffContext.AttributeDiffSet.Remove(oldName);
+                }
+                else
+                {
+                    // No match in the new tree, remove old attribute
+                    RemoveOldFrame(ref diffContext, i);
+                }
+            }
+
+            foreach (var kvp in diffContext.AttributeDiffSet)
+            {
+                // No match in the old tree
+                InsertNewFrame(ref diffContext, kvp.Value);
+            }
+        }
+
         private static void UpdateRetainedChildComponent(
             ref DiffContext diffContext,
             int oldComponentIndex,
@@ -219,7 +271,7 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
                             var newFrameAttributesEndIndexExcl = GetAttributesEndIndexExclusive(newTree, newFrameIndex);
 
                             // Diff the attributes
-                            AppendDiffEntriesForRange(
+                            AppendAttributeDiffEntriesForRange(
                                 ref diffContext,
                                 oldFrameIndex + 1, oldFrameAttributesEndIndexExcl,
                                 newFrameIndex + 1, newFrameAttributesEndIndexExcl);
@@ -514,6 +566,7 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
             public readonly RenderTreeFrame[] NewTree;
             public readonly ArrayBuilder<RenderTreeEdit> Edits;
             public readonly ArrayBuilder<RenderTreeFrame> ReferenceFrames;
+            public readonly Dictionary<string, int> AttributeDiffSet;
             public int SiblingIndex;
 
             public DiffContext(
@@ -528,6 +581,7 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
                 NewTree = newTree;
                 Edits = batchBuilder.EditsBuffer;
                 ReferenceFrames = batchBuilder.ReferenceFramesBuffer;
+                AttributeDiffSet = batchBuilder.AttributeDiffSet;
                 SiblingIndex = 0;
             }
         }
