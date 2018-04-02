@@ -28,9 +28,6 @@ namespace Microsoft.AspNetCore.Blazor.Rendering
         public Queue<int> ComponentDisposalQueue { get; } = new Queue<int>();
 
         // Scratch data structure for understanding attribute diffs.
-        //
-        // One of these can be used for the whole tree diff because attributes cannot be nested.
-        // Does not need to be cleared because it is always emptied at the end of each attribute pass.
         public Dictionary<string, int> AttributeDiffSet { get; } = new Dictionary<string, int>();
 
         public void Clear()
@@ -41,6 +38,7 @@ namespace Microsoft.AspNetCore.Blazor.Rendering
             UpdatedComponentDiffs.Clear();
             DisposedComponentIds.Clear();
             DisposedEventHandlerIds.Clear();
+            AttributeDiffSet.Clear();
         }
 
         public RenderBatch ToBatch()
