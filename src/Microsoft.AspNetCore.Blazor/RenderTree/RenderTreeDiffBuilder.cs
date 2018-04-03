@@ -188,6 +188,9 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
                 // No match in the old tree
                 InsertNewFrame(ref diffContext, kvp.Value);
             }
+
+            // We should have processed any additions at this point. Reset for the next batch.
+            diffContext.AttributeDiffSet.Clear();
         }
 
         private static void UpdateRetainedChildComponent(
