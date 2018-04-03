@@ -23,60 +23,56 @@ namespace Microsoft.AspNetCore.Blazor.Performance
             // A simple component for basic tests -- this is similar to what MVC scaffolding generates
             // for bootstrap3 form fields, but modified to be more Blazorey.
             original = new RenderTreeBuilder(renderer);
-            original.OpenComponent<SimpleComponent>(0);
-            original.OpenElement(1, "div");
-            original.AddAttribute(2, "class", "form-group");
+            original.OpenElement(0, "div");
+            original.AddAttribute(1, "class", "form-group");
 
-            original.OpenElement(3, "label");
-            original.AddAttribute(4, "class", "control-label");
-            original.AddAttribute(5, "for", "name");
-            original.AddAttribute(6, "data-unvalidated", true);
-            original.AddContent(7, "Car");
+            original.OpenElement(2, "label");
+            original.AddAttribute(3, "class", "control-label");
+            original.AddAttribute(4, "for", "name");
+            original.AddAttribute(5, "data-unvalidated", true);
+            original.AddContent(6, "Car");
             original.CloseElement();
 
-            original.OpenElement(8, "input");
-            original.AddAttribute(9, "class", "form-control");
-            original.AddAttribute(10, "type", "text");
-            original.AddAttribute(11, "name", "name"); // Notice the gap in sequence numbers
-            original.AddAttribute(13, "value", "");
+            original.OpenElement(7, "input");
+            original.AddAttribute(8, "class", "form-control");
+            original.AddAttribute(9, "type", "text");
+            original.AddAttribute(10, "name", "name"); // Notice the gap in sequence numbers
+            original.AddAttribute(12, "value", "");
             original.CloseElement();
 
-            original.OpenElement(14, "span");
-            original.AddAttribute(15, "class", "text-danger field-validation-valid");
-            original.AddContent(16, "");
+            original.OpenElement(13, "span");
+            original.AddAttribute(14, "class", "text-danger field-validation-valid");
+            original.AddContent(15, "");
             original.CloseElement();
 
             original.CloseElement();
-            original.CloseComponent();
 
             // Now simulate some input
             modified = new RenderTreeBuilder(renderer);
-            modified.OpenComponent<SimpleComponent>(0);
-            modified.OpenElement(1, "div");
-            modified.AddAttribute(2, "class", "form-group");
+            modified.OpenElement(0, "div");
+            modified.AddAttribute(1, "class", "form-group");
 
-            modified.OpenElement(3, "label");
-            modified.AddAttribute(4, "class", "control-label");
-            modified.AddAttribute(5, "for", "name");
-            modified.AddAttribute(6, "data-unvalidated", false);
-            modified.AddContent(7, "Car");
+            modified.OpenElement(2, "label");
+            modified.AddAttribute(3, "class", "control-label");
+            modified.AddAttribute(4, "for", "name");
+            modified.AddAttribute(5, "data-unvalidated", false);
+            modified.AddContent(6, "Car");
             modified.CloseElement();
             
-            modified.OpenElement(8, "input");
-            modified.AddAttribute(9, "class", "form-control");
-            modified.AddAttribute(10, "type", "text");
-            modified.AddAttribute(11, "name", "name");
-            modified.AddAttribute(12, "data-validation-state", "invalid");
-            modified.AddAttribute(13, "value", "Lamborghini");
+            modified.OpenElement(7, "input");
+            modified.AddAttribute(8, "class", "form-control");
+            modified.AddAttribute(9, "type", "text");
+            modified.AddAttribute(10, "name", "name");
+            modified.AddAttribute(11, "data-validation-state", "invalid");
+            modified.AddAttribute(12, "value", "Lamborghini");
             modified.CloseElement();
             
-            modified.OpenElement(14, "span");
-            modified.AddAttribute(15, "class", "text-danger field-validation-invalid"); // changed
-            modified.AddContent(16, "No, you can't afford that.");
+            modified.OpenElement(13, "span");
+            modified.AddAttribute(14, "class", "text-danger field-validation-invalid"); // changed
+            modified.AddContent(15, "No, you can't afford that.");
             modified.CloseElement();
             
             modified.CloseElement();
-            modified.CloseComponent();
         }
 
         [Benchmark(Description = "RenderTreeDiffBuilder: Input and validation on a single form field.")]
