@@ -15,9 +15,11 @@ namespace Microsoft.AspNetCore.Blazor.Performance
         private readonly Renderer renderer;
         private readonly RenderTreeBuilder original;
         private readonly RenderTreeBuilder modified;
+        private readonly RenderBatchBuilder builder;
 
         public RenderTreeDiffBuilderBenchmark()
         {
+            builder = new RenderBatchBuilder();
             renderer = new FakeRenderer();
 
             // A simple component for basic tests -- this is similar to what MVC scaffolding generates
@@ -75,27 +77,12 @@ namespace Microsoft.AspNetCore.Blazor.Performance
             modified.CloseElement();
         }
 
-        [Benchmark(Description = "RenderTreeDiffBuilder: Input and validation on a single form field.")]
+        [Benchmark(Description = "RenderTreeDiffBuilder: Input and validation on a single form field.", Baseline = true)]
         public void ComputeDiff_SingleFormField()
         {
-            GC.KeepAlive(ComputeDiff(original, modified));
-        }
-
-        private RenderTreeDiff ComputeDiff(RenderTreeBuilder from, RenderTreeBuilder to)
-        {
-            var batchBuilder = new RenderBatchBuilder();
-            return RenderTreeDiffBuilder.ComputeDiff(renderer, batchBuilder, 0, from.GetFrames(), to.GetFrames());
-        }
-
-        private class SimpleComponent : IComponent
-        {
-            public void Init(RenderHandle renderHandle)
-            {
-            }
-
-            public void SetParameters(ParameterCollection parameters)
-            {
-            }
+            builder.Clear();
+            var diff = RenderTreeDiffBuilder.ComputeDiff(renderer, builder, 0, original.GetFrames(), modified.GetFrames());
+            GC.KeepAlive(diff);
         }
 
         private class FakeRenderer : Renderer

@@ -150,18 +150,83 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
             int oldStartIndex, int oldEndIndexExcl,
             int newStartIndex, int newEndIndexExcl)
         {
+            // The overhead of the dictionary used by AppendAttributeDiffEntriesForRangeSlow is
+            // significant, so we want to try and do a merge-join if possible, but fall back to
+            // a hash-join if not. We'll do a merge join until we hit a case we can't handle and
+            // then fall back to the slow path.
+            //
+            // Also since duplicate attributes are not legal, we don't need to care about loops or
+            // the more complicated scenarios handled by AppendDiffEntriesForRange.
+            //
+            // We also assume that we won't see an attribute occur with different sequence numbers
+            // in the old and new sequences. It will be handled correct, but will generate a suboptimal
+            // diff.
+            var hasMoreOld = oldEndIndexExcl > oldStartIndex;
+            var hasMoreNew = newEndIndexExcl > newStartIndex;
             var oldTree = diffContext.OldTree;
             var newTree = diffContext.NewTree;
 
+            while (hasMoreOld || hasMoreNew)
+            {
+                var oldSeq = hasMoreOld ? oldTree[oldStartIndex].Sequence : int.MaxValue;
+                var newSeq = hasMoreNew ? newTree[newStartIndex].Sequence : int.MaxValue;
+                var oldAttributeName = oldTree[oldStartIndex].AttributeName;
+                var newAttributeName = newTree[newStartIndex].AttributeName;
+
+                if (oldSeq == newSeq &&
+                    string.Equals(oldAttributeName, newAttributeName, StringComparison.Ordinal))
+                {
+                    // These two attributes have the same sequence and name. Keep merging.
+                    AppendDiffEntriesForAttributeFrame(ref diffContext, oldStartIndex, newStartIndex);
+
+                    oldStartIndex = NextSiblingIndex(oldTree[oldStartIndex], oldStartIndex);
+                    newStartIndex = NextSiblingIndex(newTree[newStartIndex], newStartIndex);
+                    hasMoreOld = oldEndIndexExcl > oldStartIndex;
+                    hasMoreNew = newEndIndexExcl > newStartIndex;
+                }
+                else if (oldSeq < newSeq)
+                {
+                    // An attribute was removed from the new sequence.
+                    RemoveOldFrame(ref diffContext, oldStartIndex);
+
+                    oldStartIndex = NextSiblingIndex(oldTree[oldStartIndex], oldStartIndex);
+                    hasMoreOld = oldEndIndexExcl > oldStartIndex;
+                }
+                else if (oldSeq > newSeq)
+                {
+                    // An attribute was added to the new sequence.
+                    InsertNewFrame(ref diffContext, newStartIndex);
+
+                    newStartIndex = NextSiblingIndex(newTree[newStartIndex], newStartIndex);
+                    hasMoreNew = newEndIndexExcl > newStartIndex;
+                }
+                else
+                {
+                    // These two attributes have the same sequence and different names. This is
+                    // a failure case for merge-join, fall back to the slow path.
+                    AppendAttributeDiffEntriesForRangeSlow(
+                        ref diffContext,
+                        oldStartIndex, oldEndIndexExcl,
+                        newStartIndex, newEndIndexExcl);
+                    return;
+                }
+            }
+        }
+
+        private static void AppendAttributeDiffEntriesForRangeSlow(
+            ref DiffContext diffContext,
+            int oldStartIndex, int oldEndIndexExcl,
+            int newStartIndex, int newEndIndexExcl)
+        {
+            var oldTree = diffContext.OldTree;
+            var newTree = diffContext.NewTree;
+
+            // Slow version of AppendAttributeDiffEntriesForRange that uses a dictionary.
             // Algorithm:
             //
             // 1. iterate through the 'new' tree and add all attributes to the attributes set
             // 2. iterate through the 'old' tree, removing matching attributes from set, and diffing
             // 3. iterate through the remaining attributes in the set and add them
-            //
-            // This preserves the ordering of the 'old' tree as much as possible to produce the minimal
-            // diff.
-
             for (var i = newStartIndex; i < newEndIndexExcl; i++)
             {
                 diffContext.AttributeDiffSet[newTree[i].AttributeName] = i;
@@ -173,7 +238,7 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
                 if (diffContext.AttributeDiffSet.TryGetValue(oldName, out var matchIndex))
                 {
                     // Has a match in the new tree, look for a diff
-                    AppendDiffEntriesForFramesWithSameSequence(ref diffContext, i, matchIndex);
+                    AppendDiffEntriesForAttributeFrame(ref diffContext, i, matchIndex);
                     diffContext.AttributeDiffSet.Remove(oldName);
                 }
                 else
@@ -339,43 +404,36 @@ namespace Microsoft.AspNetCore.Blazor.RenderTree
                         break;
                     }
 
-                case RenderTreeFrameType.Attribute:
-                    {
-                        var oldName = oldFrame.AttributeName;
-                        var newName = newFrame.AttributeName;
-                        if (string.Equals(oldName, newName, StringComparison.Ordinal))
-                        {
-                            // Using Equals to account for string comparisons, nulls, etc.
-                            var valueChanged = !Equals(oldFrame.AttributeValue, newFrame.AttributeValue);
-                            if (valueChanged)
-                            {
-                                if (oldFrame.AttributeEventHandlerId > 0)
-                                {
-                                    diffContext.BatchBuilder.DisposedEventHandlerIds.Append(oldFrame.AttributeEventHandlerId);
-                                }
-                                InitializeNewAttributeFrame(ref diffContext, ref newFrame);
-                                var referenceFrameIndex = diffContext.ReferenceFrames.Append(newFrame);
-                                diffContext.Edits.Append(RenderTreeEdit.SetAttribute(diffContext.SiblingIndex, referenceFrameIndex));
-                            }
-                            else if (oldFrame.AttributeEventHandlerId > 0)
-                            {
-                                // Retain the event handler ID
-                                newFrame = oldFrame;
-                            }
-                        }
-                        else
-                        {
-                            // Since this code path is never reachable for Razor components (because you
-                            // can't have two different attribute names from the same source sequence), we
-                            // could consider removing the 'name equality' check entirely for perf
-                            RemoveOldFrame(ref diffContext, oldFrameIndex);
-                            InsertNewFrame(ref diffContext, newFrameIndex);
-                        }
-                        break;
-                    }
-
+                    // We don't handle attributes here, they have their own diff logic.
+                    // See AppendDiffEntriesForAttributeFrame
                 default:
                     throw new NotImplementedException($"Encountered unsupported frame type during diffing: {newTree[newFrameIndex].FrameType}");
+            }
+        }
+
+        // This should only be called for attributes that have the same name. This is an
+        // invariant maintained by the callers.
+        private static void AppendDiffEntriesForAttributeFrame(
+            ref DiffContext diffContext,
+            int oldFrameIndex,
+            int newFrameIndex)
+        {
+            var oldTree = diffContext.OldTree;
+            var newTree = diffContext.NewTree;
+            ref var oldFrame = ref oldTree[oldFrameIndex];
+            ref var newFrame = ref newTree[newFrameIndex];
+
+            // Using Equals to account for string comparisons, nulls, etc.
+            var valueChanged = !Equals(oldFrame.AttributeValue, newFrame.AttributeValue);
+            if (valueChanged)
+            {
+                if (oldFrame.AttributeEventHandlerId > 0)
+                {
+                    diffContext.BatchBuilder.DisposedEventHandlerIds.Append(oldFrame.AttributeEventHandlerId);
+                }
+                InitializeNewAttributeFrame(ref diffContext, ref newFrame);
+                var referenceFrameIndex = diffContext.ReferenceFrames.Append(newFrame);
+                diffContext.Edits.Append(RenderTreeEdit.SetAttribute(diffContext.SiblingIndex, referenceFrameIndex));
             }
         }
 
